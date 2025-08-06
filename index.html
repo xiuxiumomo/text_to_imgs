@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>文字转图片工具</title>
+  <style>
+    body {
+     
+      background: #ccc;
+      color: white;
+      padding: 20px;
+    }
+    textarea {
+      width: 100%;
+      height: 200px;
+      margin-bottom: 10px;
+    }
+    #output img {
+      margin: 10px 0;
+      max-width: 100%;
+      border: 1px solid #ccc;
+    }
+    .download-all {
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h2>文字转图片工具（适配移动端 + 自定义样式 + 分页）</h2>
+
+  <label>背景图片: <input type="file" id="bgUpload"></label><br><br>
+  <label>背景颜色: <input type="color" id="bgColor" value="#000000"></label><br>
+  <label>字体大小: <input type="number" id="fontSize" value="24"></label><br>
+  <label>文字上下间距(px): <input type="number" id="lineSpacing" value="24"></label><br>
+  <label>字体颜色: <input type="color" id="fontColor" value="#ffffff"></label><br><br>
+
+  <h4>边距设置（px）</h4>
+  <label>上: <input type="number" id="paddingTop" value="50"></label>
+  <label>下: <input type="number" id="paddingBottom" value="50"></label>
+  <label>左: <input type="number" id="paddingLeft" value="50"></label>
+  <label>右: <input type="number" id="paddingRight" value="50"></label><br><br>
+
+  <label>输入文字:</label><br>
+  <textarea id="textInput">这里是内容，可以自动分页，支持中文换行，支持上传背景图或设置背景颜色。</textarea><br>
+  <button id="generateBtn">生成图片</button>
+  <button class="download-all" id="downloadAllBtn">一键下载所有图片</button>
+
+  <h3>生成结果：</h3>
+  <div id="output"></div>
+
+  <!-- 引入 JSZip 和 FileSaver -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+
+  <script>
+    const canvasWidth = 720;  // ✅ 移动端适配尺寸
+    const canvasHeight = 1280;
+    let bgImage = null;
+    let imageList = [];
+
+    document.getElementById('bgUpload').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        const img = new Image();
+        img.onload = () => {
+          bgImage = img;
+        };
+        img.src = event.target.result;
+      };
+      if (file) reader.readAsDataURL(file);
+    });
+
+    function wrapText(ctx, text, maxWidth) {
+      const lines = [];
+      const paragraphs = text.split(/\r?\n/);
+      paragraphs.forEach(paragraph => {
+        let line = '';
+        for (let i = 0; i < paragraph.length; i++) {
+          const testLine = line + paragraph[i];
+          const testWidth = ctx.measureText(testLine).width;
+          if (testWidth > maxWidth) {
+            if (line) lines.push(line);
+            line = paragraph[i];
+          } else {
+            line = testLine;
+          }
+        }
+        if (line) lines.push(line);
+      });
+      return lines;
+    }
+
+    document.getElementById('generateBtn').addEventListener('click', () => {
+      const output = document.getElementById('output');
+      output.innerHTML = '';
+      imageList = [];
+
+      const text = document.getElementById('textInput').value;
+      const fontSize = parseInt(document.getElementById('fontSize').value, 10);
+      const lineSpacing = parseInt(document.getElementById('lineSpacing').value, 10);
+      const fontColor = document.getElementById('fontColor').value;
+      const bgColor = document.getElementById('bgColor').value;
+
+      const paddingTop = parseInt(document.getElementById('paddingTop').value, 10);
+      const paddingBottom = parseInt(document.getElementById('paddingBottom').value, 10);
+      const paddingLeft = parseInt(document.getElementById('paddingLeft').value, 10);
+      const paddingRight = parseInt(document.getElementById('paddingRight').value, 10);
+
+      const lineHeight = fontSize + lineSpacing;
+      const availableWidth = canvasWidth - paddingLeft - paddingRight;
+      const availableHeight = canvasHeight - paddingTop - paddingBottom;
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = canvasWidth;
+      tempCanvas.height = canvasHeight;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.font = `${fontSize}px sans-serif`;
+
+      const allLines = wrapText(tempCtx, text, availableWidth);
+      const linesPerPage = Math.floor(availableHeight / lineHeight);
+      const totalPages = Math.ceil(allLines.length / linesPerPage);
+
+      for (let page = 0; page < totalPages; page++) {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        const ctx = canvas.getContext('2d');
+
+        // 背景颜色或图片
+        if (bgImage) {
+          ctx.drawImage(bgImage, 0, 0, canvasWidth, canvasHeight);
+        } else {
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        }
+
+        ctx.fillStyle = fontColor;
+        ctx.font = `${fontSize}px sans-serif`;
+        ctx.textBaseline = "top";  // 文字从 top 对齐
+
+        const startLine = page * linesPerPage;
+        const endLine = Math.min(startLine + linesPerPage, allLines.length);
+
+        for (let i = startLine; i < endLine; i++) {
+          const textY = paddingTop + (i - startLine) * lineHeight;
+          ctx.fillText(allLines[i], paddingLeft, textY);
+        }
+
+        const imgData = canvas.toDataURL('image/png');
+        imageList.push({ name: `page_${page + 1}.png`, data: imgData });
+
+        const img = new Image();
+        img.src = imgData;
+        output.appendChild(img);
+
+        const downloadLink = document.createElement('a');
+        downloadLink.href = imgData;
+        downloadLink.download = `page_${page + 1}.png`;
+        downloadLink.innerText = `下载第 ${page + 1} 页`;
+        downloadLink.style.display = 'block';
+        output.appendChild(downloadLink);
+      }
+    });
+
+    document.getElementById('downloadAllBtn').addEventListener('click', () => {
+      if (imageList.length === 0) {
+        alert("请先生成图片！");
+        return;
+      }
+
+      const zip = new JSZip();
+      imageList.forEach(img => {
+        const base64Data = img.data.split(',')[1];
+        zip.file(img.name, base64Data, { base64: true });
+      });
+
+      zip.generateAsync({ type: 'blob' }).then(content => {
+        saveAs(content, 'text_images.zip');
+      });
+    });
+  </script>
+</body>
+</html>
